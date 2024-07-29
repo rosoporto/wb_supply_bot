@@ -10,18 +10,15 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def check_stock_wb(stores, domain, cookie):
-    messages = []
-    session = requests.Session()
-
+def get_stock_wb_from_domen(stores, domain, cookie):
     if not cookie:
         logging.error("Cookie не задано.")
         return None
 
+    data = []
+    session = requests.Session()
     for store_name, store_id in stores.items():
         url = f'https://{domain}/wp-admin/admin-ajax.php?action=get_limit_store&id={store_id}'
-        logging.info(f'Запрос к URL: {url}')
-
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36 Edg/126.0.0.0',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
@@ -31,7 +28,7 @@ def check_stock_wb(stores, domain, cookie):
         response = session.get(url, headers=headers)
         try:
             response.raise_for_status()  # Проверка на ошибки HTTP
-            data = response.json()  # Безопасное получение JSON-данных
+            stocks = response.json()  # Безопасное получение JSON-данных
         except requests.HTTPError as e:
             logging.error(f'HTTP error occurred: {e}')  # Обработка ошибок
             continue  # Переход к следующему складу
@@ -42,16 +39,27 @@ def check_stock_wb(stores, domain, cookie):
             logging.error(f'An error occurred: {e}')  # Обработка других ошибок
             continue  # Переход к следующему складу
 
-        if 'koroba' in data:
-            for item in data['koroba']:
-                if item['coefficient'] == 0:
-                    date = datetime.strptime(item['date'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d')
-                    message = f'Склад: {store_name}\nДата: {date}\nКоэффициент для "koroba" равен 0'
-                    messages.append(message)
-        else:
-            logging.warning(f'Нет данных для склада: {store_name}')
+        data.append({store_name: stocks})
 
-    return False if not messages else messages
+    return data
+
+
+def check_stock(stores, data):
+    messages = []
+    for stock in data:
+        for stock_name, stock_data in stock.items():
+            if stock_name in stores:  # Проверяем, что склад есть в списке
+                for delivery_type, deliveries in stock_data.items():
+                    for item in deliveries:
+                        if item.get('coefficient') == 0:  # Используем get для безопасного доступа
+                            date = datetime.strptime(item['date'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d')
+                            message = (f'Бесплатный слот для приемки\n'
+                                       f'Склад: {stock_name},\n'
+                                       f'Дата: {date},\n'
+                                       f'Тип поставки: {delivery_type}')
+                            messages.append(message)
+
+    return messages if messages else False
 
 
 def main():
@@ -63,13 +71,15 @@ def main():
     domain = os.getenv('DOMAIN')
     cookie = os.getenv('COOKIE')
 
-    result = check_stock_wb(stores, domain, cookie)
+    result = get_stock_wb_from_domen(stores, domain, cookie)
     if result is None:
         logging.error('Не удалось выполнить проверку из-за отсутствия cookie.')
-    elif not result:
-        logging.info('Бесплатных слотов для приемки нет.')
     else:
-        print('\n'.join(result))
+        messages = check_stock(stores, result)
+        if not messages:
+            logging.info('Бесплатных слотов для приемки нет.')
+        else:
+            logging.info('\n'.join(messages))  # Исправлено на messages
 
 
 if __name__ == '__main__':

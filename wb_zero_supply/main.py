@@ -1,6 +1,7 @@
 import os
 import ast
 from dotenv import load_dotenv
+from wb_zero_supply.get_stock_wb_from_domen import check_stock_wb
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, Job
 
 

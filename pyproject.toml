@@ -13,7 +13,8 @@ python-dotenv = "^1.0.1"
 
 [tool.poetry.scripts]
 load = "wb_zero_supply.main:main"
-check = "wb_zero_supply.check_stock_wb:main"
+check_domen = "wb_zero_supply.get_stock_wb_from_domen:main"
+check_wb_api = "wb_zero_supply.get_stock_wb_from_api:main"
 
 [build-system]
 requires = ["poetry-core"]
