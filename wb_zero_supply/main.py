@@ -11,7 +11,11 @@ r = redis.Redis(host='localhost', port=6379, db=0)
 
 
 def check_store_limit(context):
-pass
+    pass
+
+
+def start(context):
+    pass
 
 
 def main():

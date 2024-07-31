@@ -8,18 +8,19 @@ import logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def get_stock_wb_from_api(wb_api_token, stores):
+def get_stock_wb_from_api(wb_api_token, stores=None):
     url = 'https://supplies-api.wildberries.ru/api/v1/acceptance/coefficients'
 
     headers = {
         'Authorization': f'Bearer {wb_api_token}',  # Добавляем токен в заголовок Authorization
     }
 
-    # Извлекаем идентификаторы складов из словаря stores
-    warehouse_ids = list(stores.values())
     params = {}
-    if warehouse_ids:
-        params['warehouseIDs'] = ','.join(map(str, warehouse_ids))  # Преобразуем список в строку
+    if stores:
+        # Извлекаем идентификаторы складов из словаря stores
+        warehouse_ids = list(stores.values())
+        if warehouse_ids:
+            params['warehouseIDs'] = ','.join(map(str, warehouse_ids))  # Преобразуем список в строку
 
     try:
         response = requests.get(url, headers=headers, params=params)
@@ -67,8 +68,9 @@ def check_zero_coefficients(coefficients):
 def main():
     load_dotenv()
     stores = {
-        'Тула': int(os.getenv('STORES_TULA')),
-        'Электросталь': int(os.getenv('STORES_ELECTROSTAL'))
+        'Тула': 206348,
+        'СЦ Пушкино': 207743,
+        'Электросталь': 120762
     }
     wb_api_token = os.getenv('WB_API_SUPPLY')
 
