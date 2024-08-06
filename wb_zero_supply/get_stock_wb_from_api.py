@@ -1,8 +1,9 @@
 import os
 import requests
+import logging
 from dotenv import load_dotenv
 from datetime import datetime
-import logging
+from functools import partial, lru_cache
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -53,16 +54,22 @@ def check_all_coefficients(coefficients):
         print('Не удалось получить коэффициенты приёмки.')
 
 
-def check_zero_coefficients(coefficients):
-    messages = []
-    for coefficient in coefficients:
-        if coefficient['coefficient'] == 0 and coefficient.get('boxTypeName') == 'Короба':
-            date = datetime.strptime(coefficient['date'], '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d')
-            message = (f"Склад: {coefficient['warehouseName']}, "
-                       f"Дата: {date}, "
-                       f"Тип поставки: {coefficient['boxTypeName']}")
-            messages.append(message)
-    return messages
+@lru_cache(maxsize=128)
+def format_date(date_string):
+    return datetime.strptime(date_string, '%Y-%m-%dT%H:%M:%SZ').strftime('%Y-%m-%d')
+
+
+def check_coefficients_in_range(coefficients, min_degree=0, max_degree=1, type_name='Короба'):
+    return [
+        {
+            "Склад": coef['warehouseName'],
+            "Дата": format_date(coef['date']),
+            "Тип": coef['boxTypeName'],
+            "Коэффициент": coef['coefficient']
+        }
+        for coef in coefficients
+        if min_degree <= coef['coefficient'] <= max_degree and coef.get('boxTypeName') == type_name
+    ]
 
 
 def main():
@@ -74,9 +81,13 @@ def main():
     }
     wb_api_token = os.getenv('WB_API_SUPPLY')
 
+    # Создание предварительно настроенной версии функции
+    check_coefficients_for_boxes = partial(check_coefficients_in_range, min_degree=0, max_degree=1, type_name='Короба')
+
     coefficients = get_stock_wb_from_api(wb_api_token, stores)
     if coefficients:
-        messages = check_zero_coefficients(coefficients)
+        messages = check_coefficients_for_boxes(coefficients)
+        print(messages)
         if messages:
             for message in messages:
                 print(message)
