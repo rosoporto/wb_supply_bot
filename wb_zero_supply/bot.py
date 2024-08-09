@@ -10,10 +10,11 @@ from threading import Lock
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 
+
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-CHOOSING, TYPING_WAREHOUSE, CHOOSING_COEFFICIENT = range(3)
+CHOOSING, TYPING_WAREHOUSE, TYPING_BOX_TYPE, CHOOSING_COEFFICIENT = range(4)
 
 
 class Bot:
@@ -37,7 +38,8 @@ class Bot:
             states={
                 CHOOSING: [MessageHandler(Filters.regex('^Ввести название склада$'), self.choose_action)],
                 TYPING_WAREHOUSE: [MessageHandler(Filters.text & ~Filters.command, self.receive_warehouse)],
-                CHOOSING_COEFFICIENT: [MessageHandler(Filters.regex('^[0-10]$'), self.receive_coefficient)]
+                TYPING_BOX_TYPE: [MessageHandler(Filters.regex('^[0-9]{1,2}$'), self.select_delivery_type)],
+                CHOOSING_COEFFICIENT: [MessageHandler(Filters.text & ~Filters.command, self.receive_coefficient)]
             },
             fallbacks=[CommandHandler('cancel', self.cancel)]
         )
@@ -64,9 +66,7 @@ class Bot:
         return TYPING_WAREHOUSE
 
     def receive_warehouse(self, update: Update, context: CallbackContext) -> int:
-
         warehouse_name = update.message.text.strip().lower()
-
         matching_warehouses = [w for w in self.warehouses.items() if warehouse_name in w[1].lower()]
 
         if not matching_warehouses:
@@ -84,32 +84,45 @@ class Bot:
             context.user_data['warehouse_id'] = warehouse_id
             context.user_data['warehouse_name'] = warehouse_name
 
-            reply_keyboard = [list(range(11))]
+            reply_keyboard = [[str(i) for i in range(11)]]
             update.message.reply_text(
                 'Выберите максимальный коэффициент для отслеживания (0-10):',
                 reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True, one_time_keyboard=True)
             )
-            return CHOOSING_COEFFICIENT
+            return TYPING_BOX_TYPE
+
+    def select_delivery_type(self, update: Update, context: CallbackContext) -> int:
+        context.user_data['max_coefficient'] = int(update.message.text)
+
+        reply_keyboard = [['Короба', 'Монопаллеты', 'Суперсейф'], ['QR-поставка с коробами']]
+        update.message.reply_text(
+            'Выберите тип поставки:',
+            reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True, one_time_keyboard=True)
+        )
+
+        return CHOOSING_COEFFICIENT
 
     def receive_coefficient(self, update: Update, context: CallbackContext) -> int:
         user_id = update.effective_user.id
-        max_coefficient = int(update.message.text)
+        box_type_name = update.message.text
 
+        max_coefficient = context.user_data['max_coefficient']
         warehouse_id = context.user_data['warehouse_id']
         warehouse_name = context.user_data['warehouse_name']
 
-        self.start_monitoring(update, context, user_id, warehouse_id, warehouse_name, max_coefficient)
+        self.start_monitoring(update, context, user_id, warehouse_id, warehouse_name, max_coefficient, box_type_name)
         return ConversationHandler.END
 
-    def start_monitoring(self, update: Update, context: CallbackContext, user_id: int, warehouse_id: str, warehouse_name: str, max_coefficient: int) -> None:
+    def start_monitoring(self, update: Update, context: CallbackContext, user_id: int, warehouse_id: str, warehouse_name: str, max_coefficient: int, box_type_name: str) -> None:
         with self.user_data_lock:
             self.user_data[user_id] = {
                 'warehouse_id': warehouse_id,
                 'warehouse_name': warehouse_name,
                 'max_coefficient': max_coefficient,
+                'box_type_name': box_type_name,
                 'last_coefficients': {}
             }
-        message = f'Мониторинг начат для склада {warehouse_name} (ID: {warehouse_id}). Вы будете получать уведомления о коэффициентах от 0 до {max_coefficient}.'
+        message = f'Мониторинг начат для склада {warehouse_name}. Вы будете получать уведомления о коэффициентах от 0 до {max_coefficient} с типом поставки {box_type_name}.'
         update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
         context.job_queue.run_repeating(self.check_coefficient, interval=15, first=0, context=user_id)
 
@@ -121,6 +134,7 @@ class Bot:
             warehouse_id = self.user_data[user_id]['warehouse_id']
             warehouse_name = self.user_data[user_id]['warehouse_name']
             max_coefficient = self.user_data[user_id]['max_coefficient']
+            box_type_name = self.user_data[user_id]['box_type_name']
 
         url = 'https://supplies-api.wildberries.ru/api/v1/acceptance/coefficients'
         api_key = context.bot_data['API_KEY']
@@ -128,7 +142,8 @@ class Bot:
             'Authorization': f'Bearer {api_key}'
         }
         params = {
-            'warehouseIDs': warehouse_id
+            'warehouseIDs': warehouse_id,
+            'boxTypeName': box_type_name
         }
 
         try:
@@ -137,10 +152,17 @@ class Bot:
             data = response.json()
 
             if data:
+                # Фильтруем по типу поставки: короб, монопалет и т.п.
+                box_types = [item for item in data if item['boxTypeName'] == box_type_name]
+
+                if not box_types:  # Проверка на наличие данных
+                    self.send_error_message(context, user_id, f'Нет данных для типа поставки: {box_type_name}.')
+                    return
+
                 # Фильтруем коэффициенты, исключая -1 и те, что больше max_coefficient
                 coefficients = {
                     int(item['coefficient']): item['date']
-                    for item in data
+                    for item in box_types
                     if int(item['coefficient']) != -1 and 0 <= int(item['coefficient']) <= max_coefficient
                 }
 
@@ -149,7 +171,7 @@ class Bot:
                     for coef, date in coefficients.items():
                         if coef not in last_coefficients or date != last_coefficients[coef]:
                             formatted_date = datetime.fromisoformat(date.replace('Z', '+00:00')).strftime('%d.%m.%Y')
-                            message = f'Обновление:\nСклад: {warehouse_name}\nID: {warehouse_id}\nДата: {formatted_date}\nКоэффициент: {coef}'
+                            message = f'Обновление:\nСклад: {warehouse_name}\nДата: {formatted_date}\nКоэффициент: {coef}\nТип поставки: {box_type_name}'
                             context.bot.send_message(chat_id=user_id, text=message)
 
                     self.user_data[user_id]['last_coefficients'] = coefficients
