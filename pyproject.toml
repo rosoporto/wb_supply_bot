@@ -13,10 +13,10 @@ python-dotenv = "^1.0.1"
 redis = "^5.0.7"
 
 [tool.poetry.scripts]
-load = "wb_zero_supply.main:main"
 check_domen = "wb_zero_supply.get_stock_wb_from_domen:main"
 check_wb_api = "wb_zero_supply.get_stock_wb_from_api:main"
 warehouses = "wb_zero_supply.get_warehouses_wb:main"
+bot = "wb_zero_supply.bot:main"
 
 [build-system]
 requires = ["poetry-core"]
