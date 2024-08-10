@@ -7,8 +7,9 @@ from datetime import datetime
 from functools import lru_cache
 from dotenv import load_dotenv
 from threading import Lock
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
@@ -172,7 +173,13 @@ class Bot:
                         if coef not in last_coefficients or date != last_coefficients[coef]:
                             formatted_date = datetime.fromisoformat(date.replace('Z', '+00:00')).strftime('%d.%m.%Y')
                             message = f'Обновление:\nСклад: {warehouse_name}\nДата: {formatted_date}\nКоэффициент: {coef}\nТип поставки: {box_type_name}'
-                            context.bot.send_message(chat_id=user_id, text=message)
+
+                            # Создание кнопки "Забронировать"
+                            keyboard = [[InlineKeyboardButton("Забронировать", url="https://seller.wildberries.ru/supplies-management/all-supplies")]]
+                            reply_markup = InlineKeyboardMarkup(keyboard)
+
+                            # Отправка сообщения с кнопкой
+                            context.bot.send_message(chat_id=user_id, text=message, reply_markup=reply_markup)
 
                     self.user_data[user_id]['last_coefficients'] = coefficients
             else:
