@@ -2,13 +2,14 @@ import os
 import logging
 import requests
 import signal
+from threading import Lock
 from typing import Dict, Any
 from datetime import datetime
-from functools import lru_cache
 from dotenv import load_dotenv
-from threading import Lock
-from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
+from functools import lru_cache
+from wb_zero_supply.scripts.decorators import timing_decorator
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
 
 
@@ -54,10 +55,20 @@ class Bot:
             if user_id in self.user_data:
                 update.message.reply_text('У вас уже есть активный мониторинг. Используйте /cancel, чтобы остановить его и начать заново.')
                 return ConversationHandler.END
+        
+        # Сообщение-описание бота
+        description = (
+            "Привет! Я ваш помощник для мониторинга складов WB.\n"
+            "С помощью этого бота вы можете:\n"
+            "- Отслеживать коэффициенты на складах\n"
+            "- Получать уведомления о изменениях\n"
+            "- Управлять своими поставками"
+        )
+        update.message.reply_text(description)
 
         reply_keyboard = [['Ввести название склада']]
         update.message.reply_text(
-            'Привет! Давайте начнем мониторинг. Выберите действие:',
+            'Привет! Давайте начнем мониторинг. Нажмите копку "Ввести название склада" 👇:',
             reply_markup=ReplyKeyboardMarkup(reply_keyboard, resize_keyboard=True, one_time_keyboard=True)
         )
         return CHOOSING
@@ -125,8 +136,9 @@ class Bot:
             }
         message = f'Мониторинг начат для склада {warehouse_name}. Вы будете получать уведомления о коэффициентах от 0 до {max_coefficient} с типом поставки {box_type_name}.'
         update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
-        context.job_queue.run_repeating(self.check_coefficient, interval=15, first=0, context=user_id)
+        context.job_queue.run_repeating(self.check_coefficient, interval=11, first=0, context=user_id)
 
+    @timing_decorator
     def check_coefficient(self, context: CallbackContext) -> None:
         user_id = context.job.context
         with self.user_data_lock:
@@ -170,16 +182,16 @@ class Bot:
                 with self.user_data_lock:
                     last_coefficients = self.user_data[user_id]['last_coefficients']
                     for coef, date in coefficients.items():
-                        if coef not in last_coefficients or date != last_coefficients[coef]:
-                            formatted_date = datetime.fromisoformat(date.replace('Z', '+00:00')).strftime('%d.%m.%Y')
-                            message = f'Обновление:\nСклад: {warehouse_name}\nДата: {formatted_date}\nКоэффициент: {coef}\nТип поставки: {box_type_name}'
+                        if coef in last_coefficients and last_coefficients[coef] == date:
+                            continue
+                        formatted_date = datetime.fromisoformat(date.replace('Z', '+00:00')).strftime('%d.%m.%Y')
+                        message = f'Обновление:\nСклад: {warehouse_name}\nДата: {formatted_date}\nКоэффициент: {coef}\nТип поставки: {box_type_name}'
 
-                            # Создание кнопки "Забронировать"
-                            keyboard = [[InlineKeyboardButton("Забронировать", url="https://seller.wildberries.ru/supplies-management/all-supplies")]]
-                            reply_markup = InlineKeyboardMarkup(keyboard)
-
-                            # Отправка сообщения с кнопкой
-                            context.bot.send_message(chat_id=user_id, text=message, reply_markup=reply_markup)
+                        # Создание кнопки "Забронировать"
+                        keyboard = [[InlineKeyboardButton("Забронировать", url="https://seller.wildberries.ru/supplies-management/all-supplies")]]
+                        reply_markup = InlineKeyboardMarkup(keyboard)
+                        # Отправка сообщения с кнопкой
+                        context.bot.send_message(chat_id=user_id, text=message, reply_markup=reply_markup)
 
                     self.user_data[user_id]['last_coefficients'] = coefficients
             else:
