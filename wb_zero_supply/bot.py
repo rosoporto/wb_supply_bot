@@ -7,7 +7,6 @@ from typing import Dict, Any
 from datetime import datetime
 from dotenv import load_dotenv
 from functools import lru_cache
-from wb_zero_supply.scripts.decorators import timing_decorator
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 from telegram import Update, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, ConversationHandler, CallbackContext
@@ -55,7 +54,7 @@ class Bot:
             if user_id in self.user_data:
                 update.message.reply_text('У вас уже есть активный мониторинг. Используйте /cancel, чтобы остановить его и начать заново.')
                 return ConversationHandler.END
-        
+
         # Сообщение-описание бота
         description = (
             "Привет! Я ваш помощник для мониторинга складов WB.\n"
@@ -138,7 +137,6 @@ class Bot:
         update.message.reply_text(message, reply_markup=ReplyKeyboardRemove())
         context.job_queue.run_repeating(self.check_coefficient, interval=11, first=0, context=user_id)
 
-    @timing_decorator
     def check_coefficient(self, context: CallbackContext) -> None:
         user_id = context.job.context
         with self.user_data_lock:

@@ -11,7 +11,7 @@ def timing_decorator(func):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        logging.INFO(f"{func.__name__} выполнена за {end_time - start_time:.4f} секунд")
+        logging.info(f"{func.__name__} выполнена за {end_time - start_time:.4f} секунд")
         return result
     return wrapper
 

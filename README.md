@@ -3,7 +3,7 @@
 
 ### Установка
 ```bash
-git clone https://github.com/rosoporto/dialogflow_bots.git
+git clone https://github.com/rosoporto/wb_supply_bot.git
 ```
 
 ### Настройка
